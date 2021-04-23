@@ -1,0 +1,128 @@
+---
+- hosts: all
+  gather_facts: false
+  tasks:
+    - copy:
+        dest: /etc/modules-load.d/containerd.conf
+        content: |
+          overlay
+          br_netfilter
+
+    - name: Add overlay
+      modprobe:
+        name: overlay
+        state: present
+
+    - name: Add br_netfilter
+      modprobe:
+        name: br_netfilter
+        state: present
+
+    - copy:
+        dest: /etc/sysctl.d/99-kubernetes-cri.conf
+        content: |
+          net.bridge.bridge-nf-call-iptables  = 1
+          net.ipv4.ip_forward                 = 1
+          net.bridge.bridge-nf-call-ip6tables = 1
+
+    - shell: sysctl -p --system
+      become: yes
+
+    - name: Update all packages to their latest version
+      apt:
+        name: "*"
+        state: latest
+
+    - name: Install containerd
+      become: yes
+      apt:
+        name: containerd
+        state: present
+
+    - name: Create containerd directory
+      become: yes
+      ansible.builtin.file:
+        path: /etc/containerd
+        state: directory
+
+    - name: create containerd toml file
+      shell: containerd config default
+      become: yes
+      register: output
+
+    - name: copy continerd output to a toml file
+      become: yes
+      copy:
+        content: "{{ output.stdout }}"
+        dest: "/etc/containerd/config.toml"
+
+    - name: Restart containerd
+      become: yes
+      service:
+        name: containerd
+        state: restarted
+    
+    - name: Disable swap
+      command: swapoff -a
+
+    - name: Remove swapfile from /etc/fstab
+      mount:
+        name: swap
+        fstype: swap
+        state: absent
+
+    - name: install packages
+      become: yes
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - apt-transport-https
+        - curl
+        - gnupg-agent
+        - software-properties-common
+        - ca-certificates
+
+    - name: Add an apt signing key for Kubernetes
+      apt_key:
+        url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+        state: present
+
+    - name: Adding apt repository for Kubernetes
+      apt_repository:
+        repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
+        state: present
+        filename: kubernetes.list
+
+    - name: Update all packages to their latest version
+      apt:
+        name: "*"
+        state: latest
+    
+    - name: install packages
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+          - kubelet=1.20.1-00
+          - kubeadm=1.20.1-00
+          - kubectl=1.20.1-00
+          
+    - name: Hold kubeadm
+      dpkg_selections:
+        name: kubelet
+        selection: hold
+    
+    - name: Hold kubeadm
+      dpkg_selections:
+        name: kubeadm
+        selection: hold
+
+    - name: Hold kubeadm
+      dpkg_selections:
+        name: kubectl
+        selection: hold

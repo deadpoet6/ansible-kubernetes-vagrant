@@ -1,0 +1,22 @@
+ImageName = "ubuntu/bionic64"
+
+Vagrant.configure("2") do |config|
+  config.vm.define "master" do |master|
+    master.vm.box = ImageName
+    master.vm.network "private_network", ip: "192.168.50.10"
+    master.vm.hostname = "master"
+    master.vm.provision "ansible_local" do |ansible|
+      ansible.playbook = "ansible/master-playbook.yaml"
+      ansible.become = true
+      ansible.become_user = "root"
+    end
+  end
+
+  (1..2).each do |i|
+    config.vm.define "worker-#{i}" do |worker|
+      worker.vm.box = ImageName
+      worker.vm.network "private_network", ip: "192.168.200.#{10+i}"
+      worker.vm.hostname = "worker"
+    end
+  end
+end
