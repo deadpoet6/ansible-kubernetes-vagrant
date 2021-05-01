@@ -132,6 +132,29 @@
 
     - name: Join the node to cluster
       command: sh /tmp/join-command.sh
+      
+    - name: get private ip and save it as variable
+      shell: ifconfig | grep 'inet 192.168.200.' | awk '{ print $2 }'
+      register: output
+
+    - name: write ip to kubelet file
+      become: yes
+      lineinfile:
+        dest: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
+        insertafter: "EnvironmentFile=-/etc/default/kubelet"
+        line: "Environment='KUBELET_EXTRA_ARGS=--node-ip={{ output.stdout }}'"
+        firstmatch: yes
+        state: present
+    
+    - name: system daemon reload
+      become: yes
+      shell: systemctl daemon-reload
+
+    - name: Restart service httpd, in all cases
+      become: yes
+      ansible.builtin.service:
+        name: kubelet
+        state: restarted
 
   handlers:
     - name: docker status
