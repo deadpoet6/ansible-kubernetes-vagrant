@@ -1,4 +1,4 @@
-.vagrant/*
+.vagrant
 
 ansible/join-command
 apps/*
