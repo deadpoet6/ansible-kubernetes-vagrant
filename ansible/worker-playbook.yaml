@@ -137,7 +137,7 @@
       shell: ifconfig | grep 'inet 192.168.200.' | awk '{ print $2 }'
       register: output
 
-    - name: write ip to kubelet file
+    - name: write ip to kubelet file # to able to access the pods and nodes from host machine
       become: yes
       lineinfile:
         dest: /etc/systemd/system/kubelet.service.d/10-kubeadm.conf
@@ -145,6 +145,40 @@
         line: "Environment='KUBELET_EXTRA_ARGS=--node-ip={{ output.stdout }}'"
         firstmatch: yes
         state: present
+      
+    - name: write ip's and host name to etc-hosts
+      become: yes
+      lineinfile:
+        dest: /etc/hosts
+        insertbefore: "127.0.0.1"
+        line: "{{ item }}"
+        firstmatch: yes
+      loop:
+        - "192.168.50.10   master   master"
+        - "192.168.200.11   worker-1   worker-1"
+        - "192.168.200.12   worker-2   worker-2"
+
+    - name: Iptables flush filter
+      become: yes
+      ansible.builtin.iptables:
+        chain: "{{ item }}"
+        flush: yes
+      with_items:  [ 'INPUT', 'FORWARD', 'OUTPUT' ]
+    
+    - name: Iptables flush nat
+      become: yes
+      ansible.builtin.iptables:
+        table: nat
+        chain: '{{ item }}'
+        flush: yes
+      with_items: [ 'INPUT', 'OUTPUT', 'PREROUTING', 'POSTROUTING' ]
+    
+    - name: Ensure sysctl net.ipv4.ip_forward is set to 1
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: 1
+        state: present
+        reload: yes
     
     - name: system daemon reload
       become: yes

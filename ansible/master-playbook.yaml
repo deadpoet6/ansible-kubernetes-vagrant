@@ -129,8 +129,7 @@
 
     - name: kubeadm init
       become: yes
-      shell: kubeadm init --apiserver-advertise-address="192.168.50.10" --apiserver-cert-extra-sans="192.168.50.10"  --node-name master --pod-network-cidr=192.168.0.0/16
-
+      shell: kubeadm init --apiserver-advertise-address="192.168.50.10" --apiserver-cert-extra-sans="192.168.50.10"  --node-name master --pod-network-cidr=10.10.0.0/16
     - name: Create kube directory
       become: yes
       ansible.builtin.file:
@@ -156,6 +155,50 @@
     - name: Copy join command to local file
       become: false
       local_action: copy content="{{ join_command.stdout_lines[0] }}" dest="./join-command"
+
+    - name: write ip's and host name to etc-hosts
+      become: yes
+      lineinfile:
+        dest: /etc/hosts
+        insertbefore: "127.0.0.1"
+        line: "{{ item }}"
+        firstmatch: yes
+      loop:
+        - "192.168.50.10   master   master"
+        - "192.168.200.11   worker-1   worker-1"
+        - "192.168.200.12   worker-2   worker-2"
+
+    - name: Iptables flush filter
+      become: yes
+      ansible.builtin.iptables:
+        chain: "{{ item }}"
+        flush: yes
+      with_items:  [ 'INPUT', 'FORWARD', 'OUTPUT' ]
+    
+    - name: Iptables flush nat
+      become: yes
+      ansible.builtin.iptables:
+        table: nat
+        chain: '{{ item }}'
+        flush: yes
+      with_items: [ 'INPUT', 'OUTPUT', 'PREROUTING', 'POSTROUTING' ]
+    
+    - name: Ensure sysctl net.ipv4.ip_forward is set to 1
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: 1
+        state: present
+        reload: yes
+    
+    - name: system daemon reload
+      become: yes
+      shell: systemctl daemon-reload
+
+    - name: Restart service httpd, in all cases
+      become: yes
+      ansible.builtin.service:
+        name: kubelet
+        state: restarted
 
   handlers:
     - name: docker status
