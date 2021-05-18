@@ -1,6 +1,8 @@
 
 .vagrant
+k3s/ansible/node-token
+k3s/apps/*
 
-ansible/join-command
-apps/*
+k8s/ansible/join-command
+k8s/apps/*
 ubuntu-bionic-18.04-cloudimg-console.log

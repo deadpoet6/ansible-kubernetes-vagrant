@@ -39,3 +39,10 @@ Following are general issues when creating the cluster and solutions how to over
 
 ### Pod to service communication issue
   * https://www.jeffgeerling.com/blog/2019/debugging-networking-issues-multi-node-kubernetes-on-virtualbox
+    * the problem is VirtualBox creates a number of virtual network interfaces. Flannel and Calico, at least, both pick the first interface on a server, and use that to set up their own virtual networks. If they pick the default first VirtualBox network, they'll use a 10.0.2.x network that's used for the default NAT interface (enp0s3), and not the external bridge interface you configure (in my case, 192.168.7.x, or enp0s8 on Debian).
+
+    * For Flannel, you need to edit the kube-flannel-ds-amd64 DaemonSet, adding the cli option `- --iface=enp0s8` under the kube-flannel container spec.
+      * https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/troubleshooting-kubeadm/#default-nic-when-using-flannel-as-the-pod-network-in-vagrant
+
+    * For Calico, you need to edit the calico-node DaemonSet, adding the IP_AUTODETECTION_METHOD environment variable with the value `interface=enp0s8`.
+
