@@ -1,0 +1,71 @@
+---
+- hosts: all
+  gather_facts: true
+  tasks:
+    - name: Update all packages to their latest version
+      apt:
+        name: "*"
+        state: latest
+
+    - name: install packages
+      become: yes
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+        - apt-transport-https
+        - curl
+        - gnupg-agent
+        - software-properties-common
+        - ca-certificates
+
+    - name: write ip's and host name to etc-hosts
+      become: yes
+      lineinfile:
+        dest: /etc/hosts
+        insertbefore: "127.0.0.1"
+        line: "{{ item }}"
+        firstmatch: yes
+      loop:
+        - "192.168.50.11   master-1   master-1"
+        - "192.168.50.12   master-2   master-2"
+        - "192.168.50.13   master-3   master-3"
+        - "192.168.200.11   worker-1   worker-1"
+        - "192.168.200.12   worker-2   worker-2"
+        - "192.168.200.13   worker-3   worker-3"
+
+    - name: copy token in to worker nodes
+      become: yes
+      copy: src=node-token dest=/tmp/node-token mode=0777
+
+    - name: apply the join token to the worker nodes
+      become: yes
+      shell: curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="agent --server https://master-1:6443 --token-file /tmp/node-token  --node-ip={{ansible_all_ipv4_addresses[1]}} --no-deploy=traefik" sh -
+
+    - name: Iptables flush filter
+      become: yes
+      ansible.builtin.iptables:
+        chain: "{{ item }}"
+        flush: yes
+      with_items:  [ 'INPUT', 'FORWARD', 'OUTPUT' ]
+    
+    - name: Iptables flush nat
+      become: yes
+      ansible.builtin.iptables:
+        table: nat
+        chain: '{{ item }}'
+        flush: yes
+      with_items: [ 'INPUT', 'OUTPUT', 'PREROUTING', 'POSTROUTING' ]
+    
+    - name: Ensure sysctl net.ipv4.ip_forward is set to 1
+      sysctl:
+        name: net.ipv4.ip_forward
+        value: 1
+        state: present
+        reload: yes
+    
+    - name: system daemon reload
+      become: yes
+      shell: systemctl daemon-reload
