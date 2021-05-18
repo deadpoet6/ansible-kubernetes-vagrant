@@ -1,0 +1,35 @@
+ImageName = "ubuntu/bionic64"
+
+Vagrant.configure("2") do |config|
+
+  (1..3).each do |i|
+    config.vm.define "master-#{i}" do |master|
+      master.vm.box = ImageName
+      master.vm.network "private_network", ip: "192.168.50.#{10+i}"
+      master.vm.hostname = "master-#{i}"
+      master.vm.provision "ansible_local" do |ansible|
+        ansible.playbook = "ansible/master-playbook.yaml"
+        ansible.become = true
+        ansible.become_user = "root"
+      end
+    end
+  end
+
+  (1..3).each do |i|
+    config.vm.define "worker-#{i}" do |worker|
+      worker.vm.box = ImageName
+      worker.vm.network "private_network", ip: "192.168.200.#{10+i}"
+      worker.vm.hostname = "worker-#{i}"
+      worker.vm.provision "ansible_local" do |ansible|
+        ansible.playbook = "ansible/worker-playbook.yaml"
+        ansible.become = true
+        ansible.become_user = "root"
+      end
+      worker.trigger.after :up do |trigger|
+        trigger.info = "configure host"
+        trigger.only_on = "worker-3"
+        trigger.run = {path: "./ansible/apply-resources.sh"}
+      end
+    end
+  end
+end
