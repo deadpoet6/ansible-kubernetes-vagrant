@@ -5,7 +5,7 @@ Vagrant.configure("2") do |config|
   (1..3).each do |i|
     config.vm.define "master-#{i}" do |master|
       master.vm.box = ImageName
-      master.vm.network "private_network", ip: "192.168.50.#{10+i}"
+      master.vm.network "private_network", ip: "10.0.0.#{i+10}"
       master.vm.hostname = "master-#{i}"
       master.vm.provision "ansible_local" do |ansible|
         ansible.playbook = "ansible/master-playbook.yaml"
@@ -18,7 +18,7 @@ Vagrant.configure("2") do |config|
   (1..3).each do |i|
     config.vm.define "worker-#{i}" do |worker|
       worker.vm.box = ImageName
-      worker.vm.network "private_network", ip: "192.168.200.#{10+i}"
+      worker.vm.network "private_network", ip: "10.0.0.#{i+20}"
       worker.vm.hostname = "worker-#{i}"
       worker.vm.provision "ansible_local" do |ansible|
         ansible.playbook = "ansible/worker-playbook.yaml"
@@ -32,4 +32,16 @@ Vagrant.configure("2") do |config|
       end
     end
   end
+
+  # config.vm.define "lb" do |lb|
+  #   lb.vm.box = ImageName
+  #   lb.vm.network "private_network", ip: "10.0.0.30"
+  #   lb.vm.network "forwarded_port", guest: 6443, host: 6443
+  #   lb.vm.hostname = "traefik"
+  #   lb.vm.provision "ansible_local" do |ansible|
+  #     ansible.playbook = "ansible/loadbalancer.yaml"
+  #     ansible.become = true
+  #     ansible.become_user = "root"
+  #   end
+  # end
 end

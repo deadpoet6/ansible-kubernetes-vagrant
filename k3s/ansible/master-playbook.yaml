@@ -2,100 +2,52 @@
 - hosts: all
   gather_facts: true
   tasks:
-    # - copy:
-    #     dest: /etc/modules-load.d/containerd.conf
-    #     content: |
-    #       overlay
-    #       br_netfilter
+    # - name: verify ip's 1
+    #   debug:
+    #     msg: "{{ansible_all_ipv4_addresses[1]}}"
+    
+    # - name: verify ip's all
+    #   debug:
+    #     msg: "{{ansible_all_ipv4_addresses}}"
 
-    # - name: Add overlay
-    #   modprobe:
-    #     name: overlay
-    #     state: present
+    # - name: verify ip's 0
+    #   debug:
+    #     msg: "{{ansible_all_ipv4_addresses[0]}}"
 
-    # - name: Add br_netfilter
-    #   modprobe:
-    #     name: br_netfilter
-    #     state: present
+    - name: Disable swap
+      command: swapoff -a
 
-    # - copy:
-    #     dest: /etc/sysctl.d/99-kubernetes-cri.conf
-    #     content: |
-    #       net.bridge.bridge-nf-call-iptables  = 1
-    #       net.ipv4.ip_forward                 = 1
-    #       net.bridge.bridge-nf-call-ip6tables = 1
+    - name: get ip
+      shell: current_ip=$(/sbin/ip -o -4 addr list enp0s8 | awk '{print $4}' | cut -d/ -f1)
 
-    # - shell: sysctl -p --system
-    #   become: yes
+    - name: Remove swapfile from /etc/fstab
+      mount:
+        name: swap
+        fstype: swap
+        state: absent
 
     - name: Update all packages to their latest version
       apt:
         name: "*"
         state: latest
 
-    # - name: Install containerd
+    # - name: install packages
     #   become: yes
     #   apt:
-    #     name: containerd
+    #     name: "{{ packages }}"
     #     state: present
-
-    # - name: Create containerd directory
-    #   become: yes
-    #   ansible.builtin.file:
-    #     path: /etc/containerd
-    #     state: directory
-
-    # - name: create containerd toml file
-    #   shell: containerd config default
-    #   become: yes
-    #   register: output
-
-    # - name: copy continerd output to a toml file
-    #   become: yes
-    #   copy:
-    #     content: "{{ output.stdout }}"
-    #     dest: "/etc/containerd/config.toml"
-
-    # - name: Restart containerd
-    #   become: yes
-    #   service:
-    #     name: containerd
-    #     state: restarted
-    
-    # - name: Disable swap
-    #   command: swapoff -a
-
-    # - name: Remove swapfile from /etc/fstab
-    #   mount:
-    #     name: swap
-    #     fstype: swap
-    #     state: absent
-
-    - name: install packages
+    #     update_cache: yes
+    #   vars:
+    #     packages:
+    #     - apt-transport-https
+    #     - curl
+    #     - gnupg-agent
+    #     - software-properties-common
+    #     - ca-certificates
+    - name: install k3s on master-1 node
       become: yes
-      apt:
-        name: "{{ packages }}"
-        state: present
-        update_cache: yes
-      vars:
-        packages:
-        - apt-transport-https
-        - curl
-        - gnupg-agent
-        - software-properties-common
-        - ca-certificates
+      shell: echo "127.0.1.1 $(hostname)" >> /etc/hosts
 
-    # - name: show IP
-    #   debug: 
-    #     msg: "{{ansible_all_ipv4_addresses[1]}}"
-
-    # - name: get the IP address
-    #   become: yes
-    #   shell: export current_ip=$(/sbin/ip -o -4 addr list enp0s8 | awk '{print $4}' | cut -d/ -f1)
-
-    # - name: get the IP address
-    #   become: yes
-    #   shell: echo $current_ip
     - name: write ip's and host name to etc-hosts
       become: yes
       lineinfile:
@@ -104,17 +56,17 @@
         line: "{{ item }}"
         firstmatch: yes
       loop:
-        - "192.168.50.11   master-1   master-1"
-        - "192.168.50.12   master-2   master-2"
-        - "192.168.50.13   master-3   master-3"
-        - "192.168.200.11   worker-1   worker-1"
-        - "192.168.200.12   worker-2   worker-2"
-        - "192.168.200.13   worker-3   worker-3"
+        - "10.0.0.11   master-1   master-1"
+        - "10.0.0.12   master-2   master-2"
+        - "10.0.0.13   master-3   master-3"
+        - "10.0.0.21   worker-1   worker-1"
+        - "10.0.0.22   worker-2   worker-2"
+        - "10.0.0.23   worker-3   worker-3"
         
     - name: install k3s on master-1 node
       become: yes
-      shell: curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --cluster-init --tls-san $(hostname) --bind-address={{ansible_all_ipv4_addresses[1]}} --advertise-address={{ansible_all_ipv4_addresses[1]}} --node-ip={{ansible_all_ipv4_addresses[1]}} --no-deploy=traefik" sh -
-      when: ansible_facts['nodename'] == "master-1"
+      shell: curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --cluster-init --tls-san $(hostname) --bind-address=$(current_ip) --advertise-address=$(current_ip) --node-ip=$(current_ip)  --cluster-cidr=10.10.0.0/16 --service-cidr=10.11.0.0/16 --flannel-iface=enp0s8 --no-deploy=traefik" sh -s
+      when: ansible_facts['nodename'] == "master-1" #
 
     - name: output the join token
       become: yes
@@ -134,79 +86,8 @@
 
     - name: apply the join token to the master nodes
       become: yes
-      shell: curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --server https://master-1:6443 --token-file /tmp/node-token --tls-san $(hostname) --bind-address={{ansible_all_ipv4_addresses[1]}} --advertise-address={{ansible_all_ipv4_addresses[1]}} --node-ip={{ansible_all_ipv4_addresses[1]}} --no-deploy=traefik" sh -
-      when: (ansible_facts['nodename'] == "master-2") or (ansible_facts['nodename'] == "master-3")
-
-    # - name: Add an apt signing key for Kubernetes
-    #   apt_key:
-    #     url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
-    #     state: present
-
-    # - name: Adding apt repository for Kubernetes
-    #   apt_repository:
-    #     repo: deb https://apt.kubernetes.io/ kubernetes-xenial main
-    #     state: present
-    #     filename: kubernetes.list
-
-    - name: Update all packages to their latest version
-      apt:
-        name: "*"
-        state: latest
-    
-    # - name: install packages
-    #   apt:
-    #     name: "{{ packages }}"
-    #     state: present
-    #     update_cache: yes
-    #   vars:
-    #     packages:
-    #       - kubelet=1.20.1-00
-    #       - kubeadm=1.20.1-00
-    #       - kubectl=1.20.1-00
-          
-    # - name: Hold kubeadm
-    #   dpkg_selections:
-    #     name: kubelet
-    #     selection: hold
-    
-    # - name: Hold kubeadm
-    #   dpkg_selections:
-    #     name: kubeadm
-    #     selection: hold
-
-    # - name: Hold kubeadm
-    #   dpkg_selections:
-    #     name: kubectl
-    #     selection: hold
-
-    # - name: kubeadm init
-    #   become: yes
-    #   shell: kubeadm init --apiserver-advertise-address="192.168.50.10" --apiserver-cert-extra-sans="192.168.50.10"  --node-name master --pod-network-cidr=10.10.0.0/16 --service-cidr=10.11.0.0/16
-    # - name: Create kube directory
-    #   become: yes
-    #   ansible.builtin.file:
-    #     path: /home/vagrant/.kube
-    #     state: directory
-
-    # - name: copy kube config file
-    #   become: yes
-    #   shell: cp -i /etc/kubernetes/admin.conf /home/vagrant/.kube/config
-
-    # - name: copy kube config file
-    #   become: yes
-    #   shell: chown vagrant:vagrant /home/vagrant/.kube/config
-
-    # - name: install calcio pod network
-    #   become: false
-    #   command: kubectl apply -f https://github.com/coreos/flannel/raw/master/Documentation/kube-flannel.yml
-
-    # - name: Generate join command
-    #   shell: kubeadm token create --print-join-command
-    #   register: join_command
-
-    # - name: Copy join command to local file
-    #   become: false
-    #   local_action: copy content="{{ join_command.stdout_lines[0] }}" dest="./join-command"
+      shell: curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --server https://master-1:6443 --token-file /tmp/node-token --tls-san $(hostname) --bind-address=$(current_ip) --advertise-address=$(current_ip) --node-ip=$(current_ip) --cluster-cidr=10.10.0.0/16 --service-cidr=10.11.0.0/16 --flannel-iface=enp0s8 --no-deploy=traefik" sh -
+      when: (ansible_facts['nodename'] == "master-2") or (ansible_facts['nodename'] == "master-3") #
 
     - name: Iptables flush filter
       become: yes
@@ -234,12 +115,21 @@
       become: yes
       shell: systemctl daemon-reload
 
-    # - name: Restart service kubelet, in all cases
-    #   become: yes
-    #   ansible.builtin.service:
-    #     name: kubelet
-    #     state: restarted
+    - name: change file permissions
+      become: yes
+      ansible.builtin.file:
+        path: /etc/rancher/k3s/k3s.yaml
+        mode: '0777'
+      when: ansible_facts['nodename'] == "master-1"
 
-  # handlers:
-  #   - name: docker status
-  #     service: name=docker state=started
+    - name: copy the config file to working directory
+      become: yes
+      ansible.builtin.copy:
+        src: /etc/rancher/k3s/k3s.yaml
+        dest: /home/vagrant/
+        mode: '0777'
+      when: ansible_facts['nodename'] == "master-1"
+
+    - name: pause the process
+      pause:
+        seconds: 60

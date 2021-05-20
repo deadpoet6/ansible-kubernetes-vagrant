@@ -1,0 +1,24 @@
+---
+- hosts: all
+  gather_facts: true
+  tasks:
+    - name: copy static config to remote host
+      become: yes
+      copy: src=static_conf.toml dest=/tmp/static_conf.toml mode=0777
+
+    - name: copy dynamic config to remote host
+      become: yes
+      copy: src=dynamic_conf.toml dest=/tmp/dynamic_conf.toml mode=0777
+
+    - name: get the traefik
+      get_url:
+        url: https://github.com/containous/traefik/releases/download/v2.2.11/traefik_v2.2.11_linux_amd64.tar.gz
+        dest: /tmp/traefik.tar.gz
+    
+    - name: extract the files
+      ansible.builtin.unarchive:
+        src: /tmp/traefik.tar.gz
+        dest: /tmp/
+
+    - name: start traefik as daemon process
+      shell: nohup /tmp/traefik --configFile=/tmp/static_conf.toml & > /dev/null&
