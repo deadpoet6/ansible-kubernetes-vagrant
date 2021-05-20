@@ -46,3 +46,6 @@ Following are general issues when creating the cluster and solutions how to over
 
     * For Calico, you need to edit the calico-node DaemonSet, adding the IP_AUTODETECTION_METHOD environment variable with the value `interface=enp0s8`.
 
+
+TODO:
+* edit the k3s config file and change the IP from 127.0.0.1 to 10.0.0.11
