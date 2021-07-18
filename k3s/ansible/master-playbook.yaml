@@ -2,23 +2,8 @@
 - hosts: all
   gather_facts: true
   tasks:
-    # - name: verify ip's 1
-    #   debug:
-    #     msg: "{{ansible_all_ipv4_addresses[1]}}"
-    
-    # - name: verify ip's all
-    #   debug:
-    #     msg: "{{ansible_all_ipv4_addresses}}"
-
-    # - name: verify ip's 0
-    #   debug:
-    #     msg: "{{ansible_all_ipv4_addresses[0]}}"
-
     - name: Disable swap
       command: swapoff -a
-
-    - name: get ip
-      shell: current_ip=$(/sbin/ip -o -4 addr list enp0s8 | awk '{print $4}' | cut -d/ -f1)
 
     - name: Remove swapfile from /etc/fstab
       mount:
@@ -31,19 +16,6 @@
         name: "*"
         state: latest
 
-    # - name: install packages
-    #   become: yes
-    #   apt:
-    #     name: "{{ packages }}"
-    #     state: present
-    #     update_cache: yes
-    #   vars:
-    #     packages:
-    #     - apt-transport-https
-    #     - curl
-    #     - gnupg-agent
-    #     - software-properties-common
-    #     - ca-certificates
     - name: install k3s on master-1 node
       become: yes
       shell: echo "127.0.1.1 $(hostname)" >> /etc/hosts
@@ -65,8 +37,8 @@
         
     - name: install k3s on master-1 node
       become: yes
-      shell: curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --cluster-init --tls-san $(hostname) --bind-address=$(current_ip) --advertise-address=$(current_ip) --node-ip=$(current_ip)  --cluster-cidr=10.10.0.0/16 --service-cidr=10.11.0.0/16 --flannel-iface=enp0s8 --no-deploy=traefik" sh -s
-      when: ansible_facts['nodename'] == "master-1" #
+      shell: curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --cluster-init --tls-san $(hostname) --bind-address=10.0.0.11 --advertise-address=10.0.0.11 --node-ip=10.0.0.11  --cluster-cidr=10.10.0.0/16 --service-cidr=10.11.0.0/16 --flannel-iface=enp0s8" sh -s
+      when: ansible_facts['nodename'] == "master-1"
 
     - name: output the join token
       become: yes
@@ -86,8 +58,13 @@
 
     - name: apply the join token to the master nodes
       become: yes
-      shell: curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --server https://master-1:6443 --token-file /tmp/node-token --tls-san $(hostname) --bind-address=$(current_ip) --advertise-address=$(current_ip) --node-ip=$(current_ip) --cluster-cidr=10.10.0.0/16 --service-cidr=10.11.0.0/16 --flannel-iface=enp0s8 --no-deploy=traefik" sh -
-      when: (ansible_facts['nodename'] == "master-2") or (ansible_facts['nodename'] == "master-3") #
+      shell: curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --server https://master-1:6443 --token-file /tmp/node-token --tls-san $(hostname) --bind-address=10.0.0.12 --advertise-address=10.0.0.12 --node-ip=10.0.0.12 --cluster-cidr=10.10.0.0/16 --service-cidr=10.11.0.0/16 --flannel-iface=enp0s8" sh -
+      when: ansible_facts['nodename'] == "master-2" 
+      
+    - name: apply the join token to the master nodes
+      become: yes
+      shell: curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="server --server https://master-1:6443 --token-file /tmp/node-token --tls-san $(hostname) --bind-address=10.0.0.13 --advertise-address=10.0.0.13 --node-ip=10.0.0.13 --cluster-cidr=10.10.0.0/16 --service-cidr=10.11.0.0/16 --flannel-iface=enp0s8" sh -
+      when: ansible_facts['nodename'] == "master-3"
 
     - name: Iptables flush filter
       become: yes
@@ -130,6 +107,65 @@
         mode: '0777'
       when: ansible_facts['nodename'] == "master-1"
 
+    - name: replace ip in config file
+      replace:
+        path: /home/vagrant/k3s.yaml
+        regexp: '127.0.0.1'
+        replace: '10.0.0.11'
+      when: ansible_facts['nodename'] == "master-1"
+
+    - name: Configure resolved.conf file
+      become: yes
+      shell: echo "DNSStubListener=no" >> /etc/systemd/resolved.conf
+
+    - name: Install DNSmasq
+      become: yes
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+          - dnsmasq
+          - dnsutils
+          - ldnsutils
+
+    - name: Delete resolv.conf file
+      become: yes
+      file:
+        state: absent
+        path: /etc/resolv.conf
+
+    - name: add resolv.conf file
+      become: yes
+      shell: echo "nameserver 8.8.8.8 \n
+            nameserver {{ansible_all_ipv4_addresses[1]}}" >> /etc/resolv.conf
+    
+    - name: update dnsmasq.conf file contents
+      become: yes
+      shell: |
+        sed -i 's/^#no-resolv/no-resolv/' /etc/dnsmasq.conf
+        sed -i 's/^#interface=/interface=enp0s8/' /etc/dnsmasq.conf
+        sed -i 's/^#bind-interfaces/bind-interfaces/' /etc/dnsmasq.conf
+        sed -i 's/^#listen-address=/listen-address=::1,127.0.0.1,{{ansible_all_ipv4_addresses[1]}}/' /etc/dnsmasq.conf
+        # Ensure dnsmasq returns system IP and not IP of loop-back device 127.0.1.1
+        sed -i 's/^#no-hosts$/no-hosts/g' /etc/dnsmasq.conf
+        echo "server=8.8.8.8" | /usr/bin/sudo tee -a /etc/dnsmasq.conf
+        echo "server=8.8.4.4" | /usr/bin/sudo tee -a /etc/dnsmasq.conf
+        # Configue dnsmasq - /lib/systemd/system/dnsmasq.service (bugfix so dnsmasq starts automatically)
+        sed -i 's/Wants=nss-lookup.target/Wants=network-online.target/' /lib/systemd/system/dnsmasq.service
+        sed -i 's/After=network.target/After=network-online.target/' /lib/systemd/system/dnsmasq.service
+
+        echo "address=/$(hostname)/{{ansible_all_ipv4_addresses[1]}}" | /usr/bin/sudo tee -a /etc/dnsmasq.d/manoj.learning-dns.local.conf
+        echo "address=/$(hostname).manoj.learning-dns.local/{{ansible_all_ipv4_addresses[1]}}" | /usr/bin/sudo tee -a /etc/dnsmasq.d/manoj.learning-dns.local.conf
+
+    - name: restart dnsmasq
+      become: yes
+      shell: systemctl restart dnsmasq
+  
     - name: pause the process
       pause:
-        seconds: 60
+        seconds: 30
+
+    - name: master node not schedulable
+      shell: kubectl taint --overwrite node $(hostname) node-role.kubernetes.io/master=true:NoSchedule
