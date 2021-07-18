@@ -49,3 +49,6 @@ Following are general issues when creating the cluster and solutions how to over
 
 TODO:
 * edit the k3s config file and change the IP from 127.0.0.1 to 10.0.0.11
+* change the configmap of traefik and add the following under [traefiklog] section
+    `[api]`
+       `dashboard = true` and relaunh the new pods
